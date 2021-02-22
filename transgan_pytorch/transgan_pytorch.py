@@ -47,14 +47,37 @@ class Attention(nn.Module):
         return output
 
 class EncoderBlock(nn.Module):
-    def __init__(self):
+    def __init__(self, D, heads, p, forward_exp):
         super().__init__()
-        pass      
+        self.mha = Attention(D, heads)
+        self.drop_prob = p
+        self.n1 = nn.LayerNorm(D)
+        self.n2 = nn.LayerNorm(D)
+        self.mlp = nn.Sequential(
+            nn.Linear(D, forward_exp*D),
+            nn.ReLU(),
+            nn.Linear(forward_exp*D, D),
+        )
+        self.drop = nn.Dropout(p)
+
+    def forward(self, Q, K, V, mask):
+        attn = self.mha(Q, K, V, mask)
+
+        """
+        Layer normalisation with residual connections
+        """
+        x = self.n1(attn + Q)
+        x = self.drop(x)
+        forward = self.mlp(x)
+        x = self.n2(forward + x)
+        out = self.drop(x)
+
+        return out
         
 class Transformer(nn.Module):
     def __init__(self):
         super().__init__()
-        pass        
+         
 
 class TransGAN(nn.Module):
     def __init__(self):

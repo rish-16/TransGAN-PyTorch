@@ -17,12 +17,12 @@ class Attention(nn.Module):
         self.heads = heads
 
         assert (D % heads == 0), "Embedding size should be divisble by number of heads"
-        self.head_dim = D // heads
+        self.head_dim = self.D // heads
 
         self.queries = nn.Linear(self.head_dim, self.head_dim, bias=False)
         self.keys = nn.Linear(self.head_dim, self.head_dim, bias=False)
         self.values = nn.Linear(self.head_dim, self.head_dim, bias=False)
-        self.H = nn.Linear(D, D)
+        self.H = nn.Linear(self.D, self.D)
 
     def forward(self, Q, K, V, mask):
         batch_size = Q.shape[0]
@@ -38,27 +38,27 @@ class Attention(nn.Module):
         # shut off triangular matrix with very small value
         scores = raw_scores.masked_fill(mask == 0, -np.inf) if mask else raw_scores
 
-        attn = torch.softmax(scores / np.sqrt(D), dim=3)
+        attn = torch.softmax(scores / np.sqrt(self.D), dim=3)
         attn_output = torch.einsum("bhql,blhd->bqhd", [attn, V])
-        attn_output = attn_output.reshape(batch_size, q_len, D)
+        attn_output = attn_output.reshape(batch_size, q_len, self.D)
 
         output = self.H(attn_output)
 
         return output
 
 class EncoderBlock(nn.Module):
-    def __init__(self, D, heads, p, forward_exp):
+    def __init__(self, D, heads, p, fwd_exp):
         super().__init__()
         self.mha = Attention(D, heads)
         self.drop_prob = p
         self.n1 = nn.LayerNorm(D)
         self.n2 = nn.LayerNorm(D)
         self.mlp = nn.Sequential(
-            nn.Linear(D, forward_exp*D),
+            nn.Linear(D, fwd_exp*D),
             nn.ReLU(),
-            nn.Linear(forward_exp*D, D),
+            nn.Linear(fwd_exp*D, D),
         )
-        self.drop = nn.Dropout(p)
+        self.dropout = nn.Dropout(p)
 
     def forward(self, Q, K, V, mask):
         attn = self.mha(Q, K, V, mask)
@@ -67,17 +67,33 @@ class EncoderBlock(nn.Module):
         Layer normalisation with residual connections
         """
         x = self.n1(attn + Q)
-        x = self.drop(x)
+        x = self.dropout(x)
         forward = self.mlp(x)
         x = self.n2(forward + x)
-        out = self.drop(x)
+        out = self.dropout(x)
 
         return out
         
-class Transformer(nn.Module):
-    def __init__(self):
+class Encoder(nn.Module):
+    def __init__(self, D, heads, prob, fwd_exp):
         super().__init__()
-         
+        self.encoder_stack = nn.ModuleList(
+            [EncoderBlock(D, heads, prob, fwd_exp) for _ in range(6)]
+        )
+
+        self.n1 = nn.LayerNorm(D)
+        self.n2 = nn.LayerNorm(D)
+        self.MLP = nn.Linear(fwd_exp*D, D)
+
+    def forward(self, x):
+        for layer in self.encoder_stack:
+            x = layer(x)
+
+        x = self.n1(x)
+        x = self.MLP(x)
+        out = self.n2(x)
+
+        return out
 
 class TransGAN(nn.Module):
     def __init__(self):

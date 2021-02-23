@@ -22,7 +22,7 @@ class Attention(nn.Module):
         self.queries = nn.Linear(self.head_dim, self.head_dim, bias=False)
         self.keys = nn.Linear(self.head_dim, self.head_dim, bias=False)
         self.values = nn.Linear(self.head_dim, self.head_dim, bias=False)
-        self.FC_H = nn.Linear(D, D)
+        self.H = nn.Linear(D, D)
 
     def forward(self, Q, K, V, mask):
         batch_size = Q.shape[0]
@@ -42,7 +42,7 @@ class Attention(nn.Module):
         attn_output = torch.einsum("bhql,blhd->bqhd", [attn, V])
         attn_output = attn_output.reshape(batch_size, q_len, D)
 
-        output = self.FC_H(attn_output)
+        output = self.H(attn_output)
 
         return output
 

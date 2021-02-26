@@ -73,29 +73,100 @@ class EncoderBlock(nn.Module):
         out = self.dropout(x)
 
         return out
-        
-class Encoder(nn.Module):
-    def __init__(self, D, heads, prob, fwd_exp):
-        super().__init__()
-        self.encoder_stack = nn.ModuleList(
-            [EncoderBlock(D, heads, prob, fwd_exp) for _ in range(6)]
-        )
 
-        self.n1 = nn.LayerNorm(D)
-        self.n2 = nn.LayerNorm(D)
-        self.MLP = nn.Linear(fwd_exp*D, D)
+class MLP(nn.Module):
+    def __init__(self, noise_w, noise_h, channels):
+        super().__init__()
+        self.l1 = nn.Linear(
+                    noise_w*noise_h*channels, 
+                    (8*8)*noise_w*noise_h*channels, 
+                    bias=False
+                )
 
     def forward(self, x):
-        for layer in self.encoder_stack:
-            x = layer(x)
-
-        x = self.n1(x)
-        x = self.MLP(x)
-        out = self.n2(x)
-
+        out = self.l1(x)
         return out
 
-class TransGAN(nn.Module):
+class PixelShuffle(nn.Module):
     def __init__(self):
         super().__init__()
         pass
+
+class Generator(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.mlp = MLP(32, 32, 1)
+        
+        # stage 1
+        self.s1_enc = nn.ModuleList([
+                        EncoderBlock(1024*8*8)
+                        for _ in range(5)
+                    ])
+
+        # stage 2
+        self.s2_pix_shuffle = PixelShuffle()
+        self.s2_enc = nn.ModuleList([
+                        EncoderBlock(256*16*16)
+                        for _ in range (4)
+                    ])
+
+        # stage 3
+        self.s3_pix_shuffle = PixelShuffle()
+        self.s3_enc = nn.ModuleList([
+                        EncoderBlock(64*32*32)
+                        for _ in range(2)
+                    ])
+
+        # stage 4
+        self.linear = nn.Linear(32*32*64, 32*32*3)
+
+    def forward(self, noise):
+        x = self.mlp(noise)
+        for layer in self.s1_enc:
+            x = layer(x)
+        
+        x = self.s2_pix_shuffle(x)
+        for layer in self.s2_enc:
+            x = layer(x)
+
+        x - self.s3_pix_shuffle(x)
+        for layer in self.s3_enc:
+            x = layer(x)
+
+        img = self.linear(x)
+
+        return img
+
+class Discriminator(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+        self.l1 = nn.Linear(32*32*3, (8*8+1)*384)
+        self.s2_enc = nn.ModuleList([
+                        EncoderBlock((8*8+1)*284)
+                        for _ in range(7)
+                    ])
+
+        self.classification_head = nn.Linear(1*384, 1)
+
+    def forward(self, img):
+        x = self.l1(img)
+        for layer in self.s2_enc:
+            x = layer(x)
+
+        logits = self.classification_head(x)
+        pred = F.softmax(logits)
+        
+        return pred
+
+class TransGAN_S(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.gen = Generator()
+        self.disc = Discriminator()
+
+    def forward(self, noise):
+        img = self.gen(noise)
+        pred = self.disc(img)
+
+        return img, pred
